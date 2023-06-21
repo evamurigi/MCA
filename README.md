@@ -1,5 +1,4 @@
-# MCA_analysis
-Dimensionality reduction
+# Dimensionality reduction
 
 MCA stands for Multiple Correspondence Analysis. It is a statistical technique used for analyzing categorical data and exploring relationships among categorical variables. MCA is an extension of Correspondence Analysis (CA), which is used for analyzing contingency tables.
 
