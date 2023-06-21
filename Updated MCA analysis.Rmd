@@ -1,0 +1,463 @@
+---
+title: "MCA Analysis using Collective Action Data"
+author: "Eva Wanjiru"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+```
+
+**Brief introduction**
+
+This analysis will focus on MCA for dimensionality reduction using Collective Action data collected by a scholar in Kenya. Dimension reduction usually speeds up the training, but it may not always lead to a better or simpler solution. Also, there is a likelihood that we might lose some information through MCA.The categorical features are reduced by the Multiple Correspondence Analysis (MCA), which generates a matrix with values of zero or one. This method binarized categorical variables that have more than two classes.
+
+```{r warning=FALSE,message=FALSE}
+##load necessary packages
+library(tidyverse)
+library(naniar)
+library(janitor)
+library(ggplot2)
+library(readxl)
+library(summarytools)
+library(FactoMineR)
+library(factoextra)
+require(ClustOfVar)
+library(ltm)
+library(data.table)
+library(psych)
+library(polycor)
+```
+
+The dataset is first loaded using the read_excel() function and basic checks such as structure and missing values done.
+
+```{r}
+##load the data
+MCA_data<-read_excel("MCAData.xlsx")
+```
+
+```{r basic data checks}
+##clean names
+df<-MCA_data %>% clean_names()
+
+##missing values
+df %>% miss_var_summary()
+
+##convert the tibble to a dataframe
+df<-as.data.frame(df)
+
+# Rename the dataframe
+df_clean <- df
+
+##check first 5 rows
+#head(df_clean)
+
+##last 5 rows
+#tail(df_clean)
+
+##recode all variables to factors
+df_clean[sapply(df_clean, is.character)] <- lapply(df_clean[sapply(df_clean, is.character)], 
+                                       as.factor)
+
+##structure
+str(df_clean)
+```
+
+There's only one missing value in the variable household education and that row can be omitted as it has no much effect on the dataset and analysis. The dataset used in this analysis consists of 353 observations and 22 variables.
+
+**MCA**
+
+```{r}
+res.mca <- MCA(df_clean,graph = FALSE)
+
+##Get Eigen values
+eig.val <- get_eigenvalue(res.mca)
+eig.val
+
+##find percentages explained by MCA dimensions
+fviz_screeplot(res.mca, addlabels = TRUE)
+```
+
+As shown in the screeplot above, the first two dimensions do not account for more than 20% and all our components have eigen values that are less than 1 and inertia percentage less than 10% hence we need to work around the data to get great results.
+
+```{r}
+##Get variable contributions to the MCA dimensions
+var <- get_mca_var(res.mca)
+
+
+round(var$contrib,2)
+```
+
+Variables that have higher associations (higher cosine similarity) with specific dimensions are more strongly related to those dimensions. This information can help identify the variables that contribute most to each dimension and understand the underlying patterns in the data.
+
+**Total contribution to dimension 1 and 2**
+
+```{r}
+# Total contribution to dimension 1 and 2
+fviz_contrib(res.mca, choice = "var", axes = 1:2, top = 17)
+```
+
+Using the plot above, the variables making up for the total contributions to dimension 1 and 2 are shown above. The red dotted line in the graph above shows the expected average values, if the contributions were uniform. The graph shows the variables that have a high contribution to both dimension 1 and 2 are in order of importance (only the top 15 variables are chosen). We can therefore drop the other variables and see if there is a difference in the contribution to inertia on the scree plot.
+
+**Select top 15 variables**
+
+```{r}
+##choose only the top 15 variables
+my_data<-MCA_data[,c(4:13,15:18)]
+res.mca1 <- MCA(my_data)
+
+##Get Eigen values
+eig.val1 <- get_eigenvalue(res.mca1)
+eig.val1
+
+##find percentages explained by MCA dimensions
+fviz_screeplot(res.mca1, addlabels = TRUE)
+```
+
+Now from the screeplot above, the percentage of inertia explained by each MCA dimension has increased significantly hence we can continue with the analysis.
+
+**Variable contribution to the dimensions**
+
+```{r}
+##Get variable contributions to the MCA dimensions
+var_contrib <- get_mca_var(res.mca1)
+
+
+round(var_contrib$contrib,2)
+```
+
+Variables that have higher associations (higher cosine similarity) with specific dimensions are more strongly related to those dimensions. This information can help identify the variables that contribute most to each dimension and understand the underlying patterns in the data.
+
+**Correlation between variables and principal dimensions**
+
+```{r}
+fviz_mca_var(res.mca1, choice = "mca.cor", 
+            repel = TRUE, # Avoid text overlapping (slow)
+            ggtheme = theme_minimal())
+```
+
+* The plot above helps to identify variables that are the most correlated with each dimension. The squared correlations between variables and the dimensions are used as coordinates.
+
+* It can be seen that, the variables extension services and output marketing are the most correlated with dimension 1. Similarly, the variables membership entry criteria and fine imposing are the most correlated with dimension 2.
+
+**Biplot**
+
+A biplot, which combines the dimension plot with the variable plot. This plot allows you to visualize both the relationships between categories and the relationships between variables in the same plot. It helps interpret the associations between categories, variables, and dimensions simultaneously. This can lead to a better understanding of the relationships and provide valuable information for further analysis or decision-making.
+
+```{r}
+plot.MCA(res.mca1, cex = 0.8,repel = TRUE)
+```
+
+```{r}
+var <- get_mca_var(res.mca1)
+# Coordinates of variables
+var$coord
+# Cos2: quality of representation on the factore map
+var$cos2
+# Contributions to the  dimensions
+var$contrib
+```
+
+**R2 and p values**
+
+R2 tells you how well the model explains the variation in the data. If R2 is low, then your independent variable isn't helping to explain very much about the dependent variable. A p-value for a tells us if the intercept is statistically significantly different from 0 or not
+
+```{r}
+dimdesc(res.mca1)
+```
+
+**Cronbach test**
+
+Please note that while Cronbach's alpha is commonly used for assessing the internal consistency of variables measured on a numerical scale, it can also be applied to factor scores derived from MCA as an approximate measure of internal consistency. However, keep in mind that MCA deals with categorical data, and Cronbach's alpha may not be the most appropriate measure in this context.
+
+This coefficient represents the internal consistency reliability of the factor scores.It ranges from 0 to 1, with higher values indicating greater internal consistency. Generally, a Cronbach's alpha value above 0.6 is considered acceptable.
+
+##Cronbach test for the dimensions
+
+```{r warning=FALSE}
+##cronbach test of dimensions
+factor_scores <- res.mca1$ind$coord
+alpha_result <- alpha(factor_scores,check.keys = TRUE)
+alpha_result
+```
+
+##Cronbach test for the variables
+
+```{r}
+##cronbach test of variables
+variables<-my_data[,]
+variables <- na.omit(variables)  # Remove rows with missing values
+variables1 <- lapply(variables, factor)
+
+##correlation matrix of the variables
+cor_matrix <- hetcor(variables1, method = "polychoric", use = "pairwise.complete.obs")$correlations
+cor_matrix <- as.matrix(cor_matrix,check.keys = TRUE)
+
+##calculate the output from the diagonals of the correlation matrix
+cov_matrix <- cor_matrix * outer(sqrt(diag(cor_matrix)), sqrt(diag(cor_matrix)))
+
+##replace any missing values in the correlation matrix with zero
+cov_matrix[is.na(cov_matrix)] <- 0
+
+##get the results of the cronbach test
+alpha_result_var <- alpha(cov_matrix,check.keys = TRUE)
+alpha_result_var
+```
+
+**Variable clustering**
+
+```{r}
+# Extract MCA coordinates of the individuals
+mca_coords <- res.mca1$ind$coord
+
+# Load the NbClust package
+library(NbClust)
+
+# Set the number of repetitions for stability analysis
+set.seed(123)  # for reproducibility
+num_reps <- 10
+
+# Compute the optimal number of clusters using NbClust
+nbclust_result <- NbClust(mca_coords, diss = NULL, min.nc = 2, max.nc = 10,
+                          method = "kmeans", index = "all", alphaBeale = 0.1)
+
+# Get the optimal number of clusters based on the majority rule
+optimal_clusters <- nbclust_result$Best.nc[1]
+
+# Print the optimal number of clusters
+cat("Optimal number of clusters:", optimal_clusters, "\n")
+
+##more parameters related to clusters
+Index<-nbclust_result$All.index
+Index
+
+##critical values
+cric_val<-nbclust_result$All.CriticalValues
+cric_val
+
+##best partition
+best_part<-nbclust_result$Best.partition
+best_part
+
+
+##get the metrics
+metrics<-nbclust_result$Best.nc
+metrics
+```
+
+The best number of clusters is 2 according to the majority rule. The values associated with the metrics are also shown in the output above.
+
+The above output shows the different metrics which are measures used to assess the quality of the MCA solution. These metrics are typically used to determine the number of dimensions (components) to retain in the analysis. To explain a few;
+
+*KL (Kaiser-Like criterion): KL is based on the eigenvalues of the MCA solution. It considers the proportion of variance explained by each dimension and compares it to a random expectation. The KL criterion suggests retaining dimensions that explain more variance than would be expected by chance.
+
+*CH (Cattell-Horn criterion): CH is also based on the eigenvalues of the MCA solution. It compares the eigenvalues of the observed data to the eigenvalues of a simulated random dataset. The CH criterion recommends retaining dimensions with eigenvalues larger than those obtained from the random dataset.
+
+*Hartigan: The Hartigan criterion is based on the eigenvalues of the MCA solution. It compares the observed eigenvalues to a null distribution obtained by random permutations of the original data. The Hartigan criterion suggests retaining dimensions with eigenvalues that are significantly larger than the expected values under the null distribution.
+
+These metrics provide different approaches to determine the appropriate number of dimensions to retain in MCA. Researchers typically compare these metrics and consider other factors such as interpretability and the specific research question to make a final decision on the number of dimensions to retain in the analysis.
+
+**K-means clustering**
+
+K-means clustering is a popular unsupervised machine learning algorithm used for partitioning a dataset into K distinct clusters. It is a simple yet effective algorithm that aims to group similar data points together based on their feature similarities.K-means clustering is widely used in various fields for tasks such as customer segmentation, image compression, anomaly detection, and recommendation systems. However, it has some limitations, such as sensitivity to the initial centroid selection and being prone to converging to local optima. Several variations and improvements to the basic K-means algorithm have been proposed to address these limitations.
+
+```{r}
+# Perform K-means clustering on the MCA coordinates of variables
+set.seed(123)  # for reproducibility
+kmeans_result <- kmeans(mca_coords, centers = optimal_clusters)
+variable_cluster_assignments <- kmeans_result$cluster
+
+# Create a bar plot of the variable clustering results
+barplot(table(variable_cluster_assignments), col = 1:optimal_clusters,
+        xlab = "Variable Clusters", ylab = "Frequency", main = "Variable Clustering Results")
+```
+
+The optimal number of clusters is 2 and hence the analysis continues to investigate the variables contributing to the two clusters.
+
+**Dendrogram**
+
+Dendrogram is a tree that is used to visualize the objects in the different clusters.
+
+```{r}
+# Extract coordinates of categories
+coord <- res.mca1$var$coord
+
+# Perform variable clustering using MCA results
+hc <- hclust(dist(coord))
+
+clustering_res <- cutree(hc,k=2)  # Adjust the number of clusters as needed
+
+# Plot variable clustering dendrogram
+fviz_dend(hc, k = 2, cex = 0.8)
+```
+
+**Finding the clusters**
+
+```{r}
+# Extract MCA coordinates of the variables
+mca_coords <- res.mca1$var$coord
+
+# Perform K-means clustering on the MCA coordinates of variables
+k <- optimal_clusters
+set.seed(123)  # for reproducibility
+kmeans_result <- kmeans(mca_coords, centers = k)
+variable_cluster_assignments <- kmeans_result$cluster
+
+# Create a data frame with variable names and their cluster assignments
+variable_clusters <- data.frame(Variable = rownames(mca_coords), Cluster = variable_cluster_assignments)
+
+# Compute summary statistics by cluster
+summary_stats <- aggregate(Variable ~ Cluster, data = variable_clusters, FUN = function(x) paste(unique(x), collapse = ", "))
+
+# Print the summary statistics
+data.table(summary_stats)
+```
+
+The clusters are shown in the results above and the analysis continues to check the summary statistics of the clusters.
+
+**Summary statistics of the clusters**
+
+```{r}
+# Assuming you have performed MCA and obtained the MCA results in 'mca_result'
+# Assuming you have obtained the cluster membership in 'cluster_membership'
+# Perform variable clustering using k-means algorithm on MCA results
+num_clusters <- 2 # Specify the number of clusters
+clusters <- kmeans(res.mca1$var$coord, centers = num_clusters)
+
+# Cluster membership of each variable
+cluster_membership <- clusters$cluster
+# Combine cluster membership and variable coordinates
+data <- data.frame(cluster_membership, res.mca1$var$coord)
+
+# Calculate mean and standard deviation of variables in each cluster
+means <- aggregate(. ~ cluster_membership, data, FUN = mean)
+# Calculate standard deviation for clusters with at least 2 non-NA values
+sds <- aggregate(. ~ cluster_membership, data, FUN = function(x) {
+  if (sum(!is.na(x)) >= 2) {
+    sd(x, na.rm = TRUE)
+  } else {
+    0
+  }
+})
+
+
+# Print the means and standard deviations
+print("Means:")
+print(means)
+print("Standard Deviations:")
+print(sds)
+
+```
+
+The mean and standard deviation of variables in both cluster 1 and cluster 2 are as shown in the output above. However the standard deviation for the variables in cluster 2 are all zeros.  If a cluster has fewer than 2 non-missing values, the standard deviation is set to 0.
+
+```{r}
+# Extract the coordinates of the individuals from the MCA results
+individual_coordinates <- res.mca1$ind$coord
+
+# Perform K-means clustering on the individual coordinates
+k <- 2 # Number of clusters
+clusters <- kmeans(individual_coordinates, centers = k)
+
+# Get the cluster assignments for each individual
+individual_clusters <- clusters$cluster
+
+# Combine individual cluster assignments with the original dataframe
+data <- data.frame(individual_clusters, my_data)
+
+# Combine individual cluster assignments with the original dataframe
+data <- data.frame(individual_clusters, my_data)
+# Convert all variables to factors
+data <- data %>%
+  mutate_all(as.factor)
+
+##write out the csv file
+write.csv(data,"clustered_data.csv")
+```
+
+**Summary statistics of variables**
+
+```{r}
+
+# Group by the grouping column and calculate the proportion of each factor level
+##Registration
+ data %>%
+  count(individual_clusters, Registration) %>%
+  group_by(individual_clusters) %>%
+  mutate(proportion = n / sum(n))
+
+# Print the summary statistics
+print(summary_stats)
+
+##membership entry criteria
+data %>%
+  count(individual_clusters,Membership_entry_criteria) %>%
+  mutate(proportion = n / sum(n))
+
+##Members gender
+data %>%
+  count(individual_clusters,Members_Gender) %>%
+  mutate(proportion = n / sum(n))
+
+##Amalgamation
+data %>%
+  count(individual_clusters,Amalgamation) %>%
+  mutate(proportion = n / sum(n))
+
+##socialnetworking
+data %>%
+  count(individual_clusters,Social_networking) %>%
+  mutate(proportion = n / sum(n))
+
+##input sourcing
+data %>%
+  count(individual_clusters,Input_sourcing) %>%
+  mutate(proportion = n / sum(n))
+
+##Output marketing
+data %>%
+  count(individual_clusters,Output_marketing) %>%
+  mutate(proportion = n / sum(n))
+ 
+##Extension services
+data %>%
+  count(individual_clusters,Extension_services) %>%
+  mutate(proportion = n / sum(n))
+  
+##credit sourcing
+data %>%
+  count(individual_clusters,Credit_sourcing) %>%
+  mutate(proportion = n / sum(n))
+
+##savings
+data %>%
+  count(individual_clusters,Savings) %>%
+  mutate(proportion = n / sum(n))
+
+##social welfare
+data %>%
+  count(individual_clusters,Social_welfare) %>%
+  mutate(proportion = n / sum(n))
+
+##fine imposing
+data %>%
+  count(individual_clusters,Fine_imposing) %>%
+  mutate(proportion = n / sum(n))
+
+##members trust
+data %>%
+  count(individual_clusters,Members_trust) %>%
+  mutate(proportion = n / sum(n))
+
+##other groups trust
+data %>%
+  count(individual_clusters,Other_groups_trust) %>%
+  mutate(proportion = n / sum(n))
+```
+
+The proportions of each variable in the different clusters is shown in the outputs above.
+
+
